@@ -28,10 +28,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var authTokenInput: EditText
     private lateinit var saveBtn: Button
 
-    // tinyproxy
-    private lateinit var tinyStatus: TextView
-    private lateinit var tinyStartBtn: Button
-    private lateinit var tinyStopBtn: Button
+    // goproxy
+    private lateinit var goproxyStatus: TextView
+    private lateinit var goproxyStartBtn: Button
+    private lateinit var goproxyStopBtn: Button
 
     // frpc
     private lateinit var frpcStatus: TextView
@@ -43,7 +43,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var scrollLog: ScrollView
 
     // 进程
-    private var tinyproxyProcess: Process? = null
+    private var goproxyProcess: Process? = null
     private var frpcProcess: Process? = null
 
     private val logBuilder = StringBuilder()
@@ -61,7 +61,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         // 退出时关掉所有进程
-        tinyproxyProcess?.destroy()
+        goproxyProcess?.destroy()
         frpcProcess?.destroy()
         super.onDestroy()
     }
@@ -75,10 +75,10 @@ class MainActivity : AppCompatActivity() {
         authTokenInput = findViewById(R.id.auth_token)
         saveBtn = findViewById(R.id.save_btn)
 
-        // tinyproxy
-        tinyStatus = findViewById(R.id.tinyproxy_status)
-        tinyStartBtn = findViewById(R.id.tinyproxy_start)
-        tinyStopBtn = findViewById(R.id.tinyproxy_stop)
+        // goproxy
+        goproxyStatus = findViewById(R.id.goproxy_status)
+        goproxyStartBtn = findViewById(R.id.goproxy_start)
+        goproxyStopBtn = findViewById(R.id.goproxy_stop)
 
         // frpc
         frpcStatus = findViewById(R.id.frpc_status)
@@ -121,37 +121,36 @@ class MainActivity : AppCompatActivity() {
             addLog("config", "✓ 配置已保存 — Server=$server Port=$port Token=${if (token.isNotEmpty()) token else "(空)"}")
         }
 
-        // ── tinyproxy ──
-        tinyStartBtn.setOnClickListener { startTinyproxy() }
-        tinyStopBtn.setOnClickListener { stopTinyproxy() }
+        // ── goproxy ──
+        goproxyStartBtn.setOnClickListener { startGoproxy() }
+        goproxyStopBtn.setOnClickListener { stopGoproxy() }
 
         // ── frpc ──
         frpcStartBtn.setOnClickListener { startFrpc() }
         frpcStopBtn.setOnClickListener { stopFrpc() }
     }
 
-    // ── tinyproxy 启停 ─────────────────────────
+    // ── goproxy 启停 ───────────────────────────
 
-    private fun startTinyproxy() {
+    private fun startGoproxy() {
         lifecycleScope.launch(Dispatchers.IO) {
-            addLog("tinyproxy", "正在启动…")
+            addLog("goproxy", "正在启动…")
 
             // 1. 从 APK assets 提取二进制
-            val bin = extractBinary("tinyproxy")
+            val bin = extractBinary("goproxy")
             if (bin == null) {
-                addLog("tinyproxy", "❌ 二进制提取失败")
-                withContext(Dispatchers.Main) { updateTinyStatus("○ 提取失败", 0xFFF44336.toInt()) }
+                addLog("goproxy", "❌ 二进制提取失败")
+                withContext(Dispatchers.Main) { updateGoproxyStatus("○ 提取失败", 0xFFF44336.toInt()) }
                 return@launch
             }
 
-            // 2. 生成配置文件
-            val config = File(filesDir, "tinyproxy.conf")
+            // 2. 生成配置文件 (tinyproxy 兼容格式)
+            val config = File(filesDir, "goproxy.conf")
             config.writeText("""
 Port $PROXY_PORT
 Listen 127.0.0.1
-Allow 127.0.0.1
 """.trimIndent())
-            addLog("tinyproxy", "配置写入: ${config.absolutePath}")
+            addLog("goproxy", "配置写入: ${config.absolutePath}")
 
             // 3. 启动进程
             try {
@@ -159,46 +158,46 @@ Allow 127.0.0.1
                     .redirectErrorStream(false)
                     .start()
 
-                tinyproxyProcess = process
+                goproxyProcess = process
 
                 withContext(Dispatchers.Main) {
-                    updateTinyStatus("● 运行中 — 127.0.0.1:$PROXY_PORT", 0xFF4CAF50.toInt())
+                    updateGoproxyStatus("● 运行中 — 127.0.0.1:$PROXY_PORT", 0xFF4CAF50.toInt())
                 }
 
-                addLog("tinyproxy", "✓ 进程已启动 PID=${if (process.isAlive) "?" else "已退出"}")
+                addLog("goproxy", "✓ 进程已启动 PID=${if (process.isAlive) "?" else "已退出"}")
 
                 // 4. 后台读 stdout
-                readStream("tinyproxy", process.inputStream)
+                readStream("goproxy", process.inputStream)
 
                 // 5. 后台读 stderr
-                readStream("tinyproxy ERR", process.errorStream)
+                readStream("goproxy ERR", process.errorStream)
 
                 // 6. 等待退出
                 val exitCode = process.waitFor()
-                addLog("tinyproxy", "进程已退出，exit code=$exitCode")
-                tinyproxyProcess = null
+                addLog("goproxy", "进程已退出，exit code=$exitCode")
+                goproxyProcess = null
                 withContext(Dispatchers.Main) {
-                    updateTinyStatus("○ 已退出 (code=$exitCode)", 0xFFF44336.toInt())
+                    updateGoproxyStatus("○ 已退出 (code=$exitCode)", 0xFFF44336.toInt())
                 }
 
             } catch (e: Exception) {
-                addLog("tinyproxy", "❌ 启动失败: ${e.message}")
+                addLog("goproxy", "❌ 启动失败: ${e.message}")
                 withContext(Dispatchers.Main) {
-                    updateTinyStatus("○ 启动失败", 0xFFF44336.toInt())
+                    updateGoproxyStatus("○ 启动失败", 0xFFF44336.toInt())
                 }
             }
         }
     }
 
-    private fun stopTinyproxy() {
-        tinyproxyProcess?.let {
-            addLog("tinyproxy", "正在停止…")
+    private fun stopGoproxy() {
+        goproxyProcess?.let {
+            addLog("goproxy", "正在停止…")
             it.destroy()
-            tinyproxyProcess = null
-            updateTinyStatus("○ 已停止", 0xFFF44336.toInt())
+            goproxyProcess = null
+            updateGoproxyStatus("○ 已停止", 0xFFF44336.toInt())
         } ?: run {
-            addLog("tinyproxy", "进程不存在，无需停止")
-            updateTinyStatus("○ 未启动", 0xFFF44336.toInt())
+            addLog("goproxy", "进程不存在，无需停止")
+            updateGoproxyStatus("○ 未启动", 0xFFF44336.toInt())
         }
     }
 
@@ -358,13 +357,13 @@ Allow 127.0.0.1
 
     // ── UI 更新 ────────────────────────────────
 
-    private fun updateTinyStatus(text: String, color: Int) {
+    private fun updateGoproxyStatus(text: String, color: Int) {
         runOnUiThread {
-            tinyStatus.text = text
-            tinyStatus.setTextColor(color)
-            val running = tinyproxyProcess != null && tinyproxyProcess!!.isAlive
-            tinyStartBtn.isEnabled = !running
-            tinyStopBtn.isEnabled = running
+            goproxyStatus.text = text
+            goproxyStatus.setTextColor(color)
+            val running = goproxyProcess != null && goproxyProcess!!.isAlive
+            goproxyStartBtn.isEnabled = !running
+            goproxyStopBtn.isEnabled = running
         }
     }
 
