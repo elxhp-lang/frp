@@ -9,6 +9,9 @@ object FrpcBridge {
         System.loadLibrary("frpc")
     }
 
+    /** 设置日志管道：传入 write-end 文件描述符，Go 侧写日志到管道 */
+    external fun SetLogPipe(fd: Int)
+
     /** 启动 frpc，传入配置文件路径，返回 0 成功 / -1 失败 */
     external fun StartFrpc(configPath: String): Int
 

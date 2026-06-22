@@ -9,6 +9,9 @@ object GoproxyBridge {
         System.loadLibrary("goproxy")
     }
 
+    /** 设置日志管道：传入 write-end 文件描述符，Go 侧写日志到管道 */
+    external fun SetLogPipe(fd: Int)
+
     /** 启动 HTTP 代理，传入 tinyproxy 兼容格式的配置 */
     external fun StartGoproxy(config: String): Int
 

@@ -1,6 +1,7 @@
 package com.proxypool.app
 
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -8,6 +9,9 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.*
+import java.io.BufferedReader
+import java.io.FileInputStream
+import java.io.InputStreamReader
 
 class MainActivity : AppCompatActivity() {
 
@@ -27,6 +31,12 @@ class MainActivity : AppCompatActivity() {
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val dateFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+
+    // 日志管道 — Go 侧写，Kotlin 侧读
+    private var goproxyLogPipe: ParcelFileDescriptor? = null  // read end
+    private var frpcLogPipe: ParcelFileDescriptor? = null      // read end
+    private var goproxyLogJob: Job? = null
+    private var frpcLogJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,27 +66,91 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        // 先停止日志读取
+        goproxyLogJob?.cancel()
+        frpcLogJob?.cancel()
+        goproxyLogPipe?.close()
+        frpcLogPipe?.close()
+
         scope.cancel()
-        super.onDestroy()
         stopGoproxy()
         stopFrpc()
+        super.onDestroy()
+    }
+
+    // ── 日志管道设置 ────────────────────────────
+
+    /** 为 goproxy 创建日志管道，Go 侧写 → Kotlin 侧读到 UI */
+    private fun setupGoproxyLogPipe() {
+        if (goproxyLogJob?.isActive == true) return
+
+        val pipe = ParcelFileDescriptor.createPipe()
+        val readEnd = pipe[0]
+        val writeEnd = pipe[1]
+        goproxyLogPipe = readEnd
+
+        // 把 write-end fd 传给 Go
+        GoproxyBridge.SetLogPipe(writeEnd.fd)
+        writeEnd.close() // Go 持有 write end，我们这边可以关了
+
+        // 起协程读 read-end → UI
+        goproxyLogJob = scope.launch(Dispatchers.IO) {
+            try {
+                val reader = BufferedReader(InputStreamReader(FileInputStream(readEnd.fileDescriptor)))
+                var line: String? = reader.readLine()
+                while (line != null) {
+                    addLog("goproxy", line!!)
+                    line = reader.readLine()
+                }
+            } catch (e: Exception) {
+                addLog("goproxy", "log pipe closed: ${e.message}")
+            }
+        }
+    }
+
+    /** 为 frpc 创建日志管道 */
+    private fun setupFrpcLogPipe() {
+        if (frpcLogJob?.isActive == true) return
+
+        val pipe = ParcelFileDescriptor.createPipe()
+        val readEnd = pipe[0]
+        val writeEnd = pipe[1]
+        frpcLogPipe = readEnd
+
+        // 把 write-end fd 传给 Go
+        FrpcBridge.SetLogPipe(writeEnd.fd)
+        writeEnd.close()
+
+        // 起协程读 read-end → UI
+        frpcLogJob = scope.launch(Dispatchers.IO) {
+            try {
+                val reader = BufferedReader(InputStreamReader(FileInputStream(readEnd.fileDescriptor)))
+                var line: String? = reader.readLine()
+                while (line != null) {
+                    addLog("frpc", line!!)
+                    line = reader.readLine()
+                }
+            } catch (e: Exception) {
+                addLog("frpc", "log pipe closed: ${e.message}")
+            }
+        }
     }
 
     // ── goproxy ────────────────────────────────
 
     private fun startGoproxy() {
         scope.launch(Dispatchers.IO) {
-            addLog("goproxy", "正在启动…")
+            setupGoproxyLogPipe()
+            addLog("goproxy", "starting...")
             val config = "Port 7890\nListen 127.0.0.1\n"
             val result = GoproxyBridge.StartGoproxy(config)
             withContext(Dispatchers.Main) {
                 if (result == 0) {
-                    addLog("goproxy", "✓ 已启动 — 127.0.0.1:7890")
-                    goproxyStatus.text = "● 运行中 — 127.0.0.1:7890"
+                    goproxyStatus.text = "● running — 127.0.0.1:7890"
                     goproxyStatus.setTextColor(0xFF4CAF50.toInt())
                 } else {
-                    addLog("goproxy", "✗ 启动失败 (code=$result)")
-                    goproxyStatus.text = "○ 启动失败"
+                    addLog("goproxy", "start failed (code=$result)")
+                    goproxyStatus.text = "○ start failed"
                     goproxyStatus.setTextColor(0xFFF44336.toInt())
                 }
                 updateGoproxyButtons()
@@ -86,11 +160,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun stopGoproxy() {
         scope.launch(Dispatchers.IO) {
-            addLog("goproxy", "正在停止…")
+            addLog("goproxy", "stopping...")
             GoproxyBridge.StopGoproxy()
             withContext(Dispatchers.Main) {
-                addLog("goproxy", "✓ 已停止")
-                goproxyStatus.text = "○ 已停止"
+                goproxyStatus.text = "○ stopped"
                 goproxyStatus.setTextColor(0xFF757575.toInt())
                 updateGoproxyButtons()
             }
@@ -105,12 +178,13 @@ class MainActivity : AppCompatActivity() {
         val token = etToken.text.toString().trim()
 
         if (server.isEmpty() || remotePort.isEmpty() || token.isEmpty()) {
-            addLog("frpc", "✗ 请填写 Server / Remote Port / Token")
+            addLog("frpc", "✗ fill in Server / Port / Token")
             return
         }
 
         scope.launch(Dispatchers.IO) {
-            addLog("frpc", "正在生成配置…")
+            setupFrpcLogPipe()
+            addLog("frpc", "writing config...")
 
             // 生成 toml 配置
             val config = """
@@ -130,26 +204,23 @@ class MainActivity : AppCompatActivity() {
             val configPath = "$filesDir/frpc.toml"
             val writeResult = FrpcBridge.FrpcWriteConfig(configPath, config)
             if (writeResult != 0) {
-                addLog("frpc", "✗ 配置写入失败")
+                addLog("frpc", "✗ config write failed")
                 withContext(Dispatchers.Main) {
-                    frpcStatus.text = "○ 配置写入失败"
+                    frpcStatus.text = "○ config write failed"
                     frpcStatus.setTextColor(0xFFF44336.toInt())
                 }
                 return@launch
             }
-            addLog("frpc", "配置已写入 $configPath")
 
             // 启动 frpc
-            addLog("frpc", "正在连接 frps…")
             val result = FrpcBridge.StartFrpc(configPath)
             withContext(Dispatchers.Main) {
                 if (result == 0) {
-                    addLog("frpc", "✓ 已启动 — 隧道 $remotePort → 127.0.0.1:7890")
-                    frpcStatus.text = "● 运行中 — 隧道 $remotePort"
+                    frpcStatus.text = "● running — tunnel $remotePort"
                     frpcStatus.setTextColor(0xFF4CAF50.toInt())
                 } else {
-                    addLog("frpc", "✗ 启动失败 (code=$result)")
-                    frpcStatus.text = "○ 启动失败"
+                    addLog("frpc", "start failed (code=$result)")
+                    frpcStatus.text = "○ start failed"
                     frpcStatus.setTextColor(0xFFF44336.toInt())
                 }
                 updateFrpcButtons()
@@ -159,11 +230,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun stopFrpc() {
         scope.launch(Dispatchers.IO) {
-            addLog("frpc", "正在停止…")
             FrpcBridge.StopFrpc()
             withContext(Dispatchers.Main) {
-                addLog("frpc", "✓ 已停止")
-                frpcStatus.text = "○ 已停止"
+                frpcStatus.text = "○ stopped"
                 frpcStatus.setTextColor(0xFF757575.toInt())
                 updateFrpcButtons()
             }
@@ -178,11 +247,11 @@ class MainActivity : AppCompatActivity() {
             val frpcRunning = FrpcBridge.IsFrpcRunning() == 1
             withContext(Dispatchers.Main) {
                 if (proxyRunning) {
-                    goproxyStatus.text = "● 运行中 — 127.0.0.1:7890"
+                    goproxyStatus.text = "● running — 127.0.0.1:7890"
                     goproxyStatus.setTextColor(0xFF4CAF50.toInt())
                 }
                 if (frpcRunning) {
-                    frpcStatus.text = "● 运行中"
+                    frpcStatus.text = "● running"
                     frpcStatus.setTextColor(0xFF4CAF50.toInt())
                 }
                 updateGoproxyButtons()

@@ -1,7 +1,7 @@
 // goproxy-lib — Go HTTP forward proxy 编译为 Android .so
 // 编译: CGO_ENABLED=1 GOOS=android GOARCH=arm64 \
 //         CC=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang \
-//         go build -buildmode=c-shared -o ../app/src/main/jniLibs/arm64-v8a/libgoproxy.so .
+//         go build -buildmode=c-shared -o libgoproxy.so .
 
 package main
 
@@ -23,19 +23,24 @@ import (
 )
 
 var (
-	proxyMu    sync.Mutex
-	proxySrv   *http.Server
-	proxyDone  chan struct{}
-	logWriter  io.WriteCloser // Android 侧可读的日志管道
+	proxyMu   sync.Mutex
+	proxySrv  *http.Server
+	proxyDone chan struct{}
 )
 
-func init() {
-	// 默认日志输出到 stderr（logcat 可见），App 可通过 SetLogPipe 接管
-	logPipe = os.Stderr
+var logPipe io.Writer = os.Stderr
+
+//export Java_com_proxypool_app_GoproxyBridge_SetLogPipe
+func Java_com_proxypool_app_GoproxyBridge_SetLogPipe(fd C.int) {
+	file := os.NewFile(uintptr(fd), "goproxy_log")
+	if file != nil {
+		logPipe = file
+		fmt.Fprintf(file, "[goproxy] log pipe connected\n")
+	}
 }
 
-//export StartGoproxy
-func StartGoproxy(configC *C.char) C.int {
+//export Java_com_proxypool_app_GoproxyBridge_StartGoproxy
+func Java_com_proxypool_app_GoproxyBridge_StartGoproxy(configC *C.char) C.int {
 	config := C.GoString(configC)
 
 	proxyMu.Lock()
@@ -96,8 +101,8 @@ func StartGoproxy(configC *C.char) C.int {
 	return 0
 }
 
-//export StopGoproxy
-func StopGoproxy() C.int {
+//export Java_com_proxypool_app_GoproxyBridge_StopGoproxy
+func Java_com_proxypool_app_GoproxyBridge_StopGoproxy() C.int {
 	proxyMu.Lock()
 	srv := proxySrv
 	done := proxyDone
@@ -119,16 +124,8 @@ func StopGoproxy() C.int {
 	return 0
 }
 
-//export SetGoproxyLogPipe
-func SetGoproxyLogPipe(fd C.int) {
-	file := os.NewFile(uintptr(fd), "goproxy_log")
-	if file != nil {
-		logPipe = file
-	}
-}
-
-//export IsGoproxyRunning
-func IsGoproxyRunning() C.int {
+//export Java_com_proxypool_app_GoproxyBridge_IsGoproxyRunning
+func Java_com_proxypool_app_GoproxyBridge_IsGoproxyRunning() C.int {
 	proxyMu.Lock()
 	defer proxyMu.Unlock()
 	if proxySrv != nil {
@@ -243,7 +240,5 @@ func removeHopByHop(h http.Header) {
 		h.Del(k)
 	}
 }
-
-var logPipe io.Writer
 
 func main() {}

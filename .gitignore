@@ -11,3 +11,7 @@ local.properties
 /app/build
 /app/release
 goproxy/bin/
+
+# JNI build artifacts — compiled by CI, not committed
+/app/src/main/jniLibs/**/*.so
+!/app/src/main/jniLibs/**/.gitkeep
