@@ -295,14 +295,14 @@ Listen 127.0.0.1
 
     private fun extractBinary(name: String): File? {
         return try {
-            // /data/local/tmp 是 Android 上允许执行的标准目录，所有设备通用
-            val binDir = File("/data/local/tmp/com.proxypool.app")
+            // codeCacheDir — 系统分配的 app 专属目录，天生有 rwx 权限，无需申请任何运行时权限
+            val binDir = codeCacheDir
             binDir.mkdirs()
             val outputFile = File(binDir, name)
             if (outputFile.exists() && outputFile.length() > 0) {
-                addLog("system", "$name 已存在，跳过提取")
+                addLog("system", "$name 已存在 (${outputFile.length()} bytes)，跳过提取")
             } else {
-                addLog("system", "正在提取 $name…")
+                addLog("system", "正在提取 $name → ${outputFile.absolutePath}…")
                 val inputStream: InputStream = assets.open("arm64-v8a/$name")
                 outputFile.outputStream().use { out ->
                     inputStream.copyTo(out)
@@ -313,6 +313,8 @@ Listen 127.0.0.1
 
             if (!outputFile.setExecutable(true)) {
                 addLog("system", "⚠ 设置 $name 可执行权限失败，尝试执行看看…")
+            } else {
+                addLog("system", "$name 权限: -rwx------ (ok)")
             }
             outputFile
         } catch (e: Exception) {
