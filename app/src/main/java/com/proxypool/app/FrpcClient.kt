@@ -78,24 +78,36 @@ class FrpcClient(
 
     private fun writeMsg(type: Byte, json: String, out: DataOutputStream) {
         val body = json.toByteArray(Charsets.UTF_8)
-        out.write(type.toInt())           // 1 byte: type
-        out.writeLong(body.size.toLong())  // 8 bytes: int64 big-endian json length
-        out.write(body)                    // json bytes
+        val typeByte = type.toInt()
+        val lenLong = body.size.toLong()
+        out.write(typeByte)
+        out.writeLong(lenLong)
+        out.write(body)
         out.flush()
+        // Debug: hex dump first 64 bytes
+        val hexDump = (byteArrayOf(typeByte.toByte()) +
+                java.nio.ByteBuffer.allocate(8).putLong(lenLong).array() +
+                body).take(64).joinToString(" ") { "%02x".format(it) }
+        log("frpc-hex", "write type=${type.toInt().toChar()} len=$lenLong → $hexDump")
     }
 
     private class ParsedMsg(val type: Byte, val json: String)
 
     private fun readMsg(input: DataInputStream): ParsedMsg? {
         val typeByte = input.read()        // 1 byte: type
-        if (typeByte < 0) return null      // EOF
+        if (typeByte < 0) { log("frpc-hex", "readMsg EOF (connection closed)"); return null }
         val jsonLen = input.readLong()     // 8 bytes: int64 big-endian length
-        if (jsonLen < 0 || jsonLen > 10_485_760) { // sanity: max 10MB
+        if (jsonLen < 0 || jsonLen > 10_485_760) {
+            log("frpc-hex", "readMsg bad jsonLen=$jsonLen")
             throw IOException("readMsg: bad jsonLen=$jsonLen")
         }
         val payload = ByteArray(jsonLen.toInt())
         input.readFully(payload)
         val json = String(payload, Charsets.UTF_8)
+        val hexDump = (byteArrayOf(typeByte.toByte()) +
+                java.nio.ByteBuffer.allocate(8).putLong(jsonLen).array() +
+                payload).take(64).joinToString(" ") { "%02x".format(it) }
+        log("frpc-hex", "read  type=${typeByte.toInt().toChar()} len=$jsonLen → $hexDump")
         return ParsedMsg(typeByte.toByte(), json)
     }
 
@@ -105,12 +117,15 @@ class FrpcClient(
         val sock = Socket(serverAddr, serverPort)
         controlSocket = sock
         sock.soTimeout = 0  // no timeout for control
+        log("frpc", "✓ TCP connected to $serverAddr:$serverPort")
         val out = DataOutputStream(sock.getOutputStream().buffered())
         val input = DataInputStream(sock.getInputStream().buffered())
         controlOutput = out
 
         // Step 1: Login
         val ts = System.currentTimeMillis() / 1000
+        val authKey = getAuthKey(ts)
+        log("frpc", "Login: ts=$ts authKey=$authKey")
         val loginJson = JSONObject().apply {
             put("version", "0.61.0-kotlin")
             put("hostname", "android-proxy")
