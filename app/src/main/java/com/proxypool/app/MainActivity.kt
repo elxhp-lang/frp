@@ -296,7 +296,7 @@ Allow 127.0.0.1
 
     private fun extractBinary(name: String): File? {
         return try {
-            val outputFile = File(filesDir, name)
+            val outputFile = File(codeCacheDir, name) // codeCacheDir 允许执行
             if (outputFile.exists() && outputFile.length() > 0) {
                 addLog("system", "$name 已存在，跳过提取")
             } else {
