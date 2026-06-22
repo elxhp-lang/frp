@@ -1,0 +1,3 @@
+[submodule "native/frp"]
+	path = native/frp
+	url = https://github.com/fatedier/frp.git

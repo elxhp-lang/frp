@@ -30,7 +30,7 @@ android {
     // Android 8+ 需要声明原生库支持
     packaging {
         jniLibs {
-            useLegacyPackaging = true
+            useLegacyPackaging = false  // 保留 .so 可执行权限，W^X 策略要求
         }
         resources {
             excludes += setOf(
