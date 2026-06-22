@@ -189,7 +189,7 @@ class MainActivity : AppCompatActivity() {
             // 生成 toml 配置
             val config = """
                 serverAddr = "$server"
-                serverPort = 7000
+                serverPort = 17891
                 auth.token = "$token"
                 
                 [[proxies]]
