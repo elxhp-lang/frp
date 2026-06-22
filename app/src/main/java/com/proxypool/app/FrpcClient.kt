@@ -10,10 +10,10 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Pure Kotlin frp client — implements the frp V1 wire protocol.
+ * Pure Kotlin frp client — implements frp wire protocol (golib msg/json).
  *
- * Wire format (V1):
- *   [4 bytes big-endian: 1 + len(json)] [1 byte: type] [json bytes]
+ * Wire format:
+ *   [1 byte: type] [8 bytes: int64 big-endian jsonLen] [json bytes]
  *
  * Message types:
  *   'o' Login      '1' LoginResp   'p' NewProxy
@@ -73,26 +73,30 @@ class FrpcClient(
         return md.digest(input).joinToString("") { "%02x".format(it) }
     }
 
-    // ── V1 wire encoding ──
+    // ── V1 wire encoding (golib msg/json format) ──
+    // Format: [1 byte type] [8 bytes int64 big-endian jsonLen] [json bytes]
 
     private fun writeMsg(type: Byte, json: String, out: DataOutputStream) {
         val body = json.toByteArray(Charsets.UTF_8)
-        val totalLen = 1 + body.size  // type byte + json
-        out.writeInt(totalLen)
-        out.write(type.toInt())
-        out.write(body)
+        out.write(type.toInt())           // 1 byte: type
+        out.writeLong(body.size.toLong())  // 8 bytes: int64 big-endian json length
+        out.write(body)                    // json bytes
         out.flush()
     }
 
     private class ParsedMsg(val type: Byte, val json: String)
 
     private fun readMsg(input: DataInputStream): ParsedMsg? {
-        val totalLen = input.readInt()
-        val payload = ByteArray(totalLen)
+        val typeByte = input.read()        // 1 byte: type
+        if (typeByte < 0) return null      // EOF
+        val jsonLen = input.readLong()     // 8 bytes: int64 big-endian length
+        if (jsonLen < 0 || jsonLen > 10_485_760) { // sanity: max 10MB
+            throw IOException("readMsg: bad jsonLen=$jsonLen")
+        }
+        val payload = ByteArray(jsonLen.toInt())
         input.readFully(payload)
-        val type = payload[0]
-        val json = String(payload, 1, payload.size - 1, Charsets.UTF_8)
-        return ParsedMsg(type, json)
+        val json = String(payload, Charsets.UTF_8)
+        return ParsedMsg(typeByte.toByte(), json)
     }
 
     // ── login + proxy registration ──
