@@ -24,7 +24,7 @@ class FrpcClient(
     private val serverAddr: String,
     private val serverPort: Int,
     private val token: String,
-    private val remotePort: Int,
+    @Suppress("unused") private val remotePort: Int,  // kept for UI, unused in tcpmux mode
     private val localPort: Int,   // goproxy listen port
     private val log: (String, String) -> Unit  // (tag, line) logger
 ) {
@@ -148,13 +148,12 @@ class FrpcClient(
         runID = lr.optString("run_id", "")
         log("frpc", "✓ logged in, runID=$runID")
 
-        // Step 2: NewProxy
+        // Step 2: NewProxy (tcpmux — proxy traffic on bind_port, no separate remote_port)
         val proxyJson = JSONObject().apply {
             put("proxy_name", "phone_pool")
-            put("proxy_type", "tcp")
-            put("remote_port", remotePort)
+            put("proxy_type", "tcpmux")
         }.toString()
-        log("frpc", "→ NewProxy remotePort=$remotePort")
+        log("frpc", "→ NewProxy (tcpmux — traffic via bind_port)")
         writeMsg('p'.code.toByte(), proxyJson, out)
 
         val proxyResp = readMsg(input) ?: throw IOException("newproxy: no response")
