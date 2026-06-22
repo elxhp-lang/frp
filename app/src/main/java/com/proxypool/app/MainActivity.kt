@@ -16,6 +16,7 @@ import java.io.InputStreamReader
 class MainActivity : AppCompatActivity() {
 
     private lateinit var etServer: EditText
+    private lateinit var etServerPort: EditText
     private lateinit var etRemotePort: EditText
     private lateinit var etToken: EditText
     private lateinit var logView: TextView
@@ -43,6 +44,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         etServer = findViewById(R.id.server_addr)
+        etServerPort = findViewById(R.id.server_port)
         etRemotePort = findViewById(R.id.remote_port)
         etToken = findViewById(R.id.auth_token)
         logView = findViewById(R.id.log_view)
@@ -174,11 +176,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun startFrpc() {
         val server = etServer.text.toString().trim()
+        val serverPort = etServerPort.text.toString().trim()
         val remotePort = etRemotePort.text.toString().trim()
         val token = etToken.text.toString().trim()
 
-        if (server.isEmpty() || remotePort.isEmpty() || token.isEmpty()) {
-            addLog("frpc", "✗ fill in Server / Port / Token")
+        if (server.isEmpty() || serverPort.isEmpty() || remotePort.isEmpty() || token.isEmpty()) {
+            addLog("frpc", "✗ fill in Server IP / 隧道Port / 代理Port / Token")
             return
         }
 
@@ -189,7 +192,7 @@ class MainActivity : AppCompatActivity() {
             // 生成 toml 配置
             val config = """
                 serverAddr = "$server"
-                serverPort = 17891
+                serverPort = $serverPort
                 auth.token = "$token"
                 
                 [[proxies]]

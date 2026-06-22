@@ -28,7 +28,7 @@
             android:layout_width="0dp"
             android:layout_height="44dp"
             android:layout_weight="1"
-            android:hint="Server"
+            android:hint="Server IP"
             android:text="49.232.72.125"
             android:inputType="text"
             android:paddingStart="8dp"
@@ -36,10 +36,20 @@
             android:textSize="13sp" />
 
         <EditText
-            android:id="@+id/remote_port"
-            android:layout_width="80dp"
+            android:id="@+id/server_port"
+            android:layout_width="72dp"
             android:layout_height="44dp"
-            android:hint="Port"
+            android:hint="隧道Port"
+            android:inputType="number"
+            android:paddingStart="8dp"
+            android:background="@android:color/transparent"
+            android:textSize="13sp" />
+
+        <EditText
+            android:id="@+id/remote_port"
+            android:layout_width="72dp"
+            android:layout_height="44dp"
+            android:hint="代理Port"
             android:inputType="number"
             android:paddingStart="8dp"
             android:background="@android:color/transparent"
@@ -47,7 +57,7 @@
 
         <EditText
             android:id="@+id/auth_token"
-            android:layout_width="100dp"
+            android:layout_width="88dp"
             android:layout_height="44dp"
             android:hint="Token"
             android:inputType="text"
