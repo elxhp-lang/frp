@@ -93,12 +93,17 @@ class ProxyService : Service() {
 
                 // 2. 准备 frpc 配置
                 val frpcConfig = prepareFrpcConfig()
+                if (frpcConfig == null) {
+                    Log.w(TAG, "frpc 配置不完整，跳过 frpc 启动（请在界面填写 Server/RemotePort/AuthToken）")
+                    return@launch
+                }
                 val frpcBin = extractBinary("frpc", "frpc")
                 frpcBin.setExecutable(true)
 
                 Log.i(TAG, "Starting frpc with config: $frpcConfig")
+                // frpcConfig 此时已保证非 null
                 frpcProcess = Runtime.getRuntime().exec(
-                    arrayOf(frpcBin.absolutePath, "-c", frpcConfig.absolutePath),
+                    arrayOf(frpcBin.absolutePath, "-c", frpcConfig!!.absolutePath),
                     null,
                     filesDir
                 )
@@ -180,7 +185,7 @@ class ProxyService : Service() {
     /**
      * 从 SharedPreferences 读取 frpc 配置并写入文件
      */
-    private fun prepareFrpcConfig(): File {
+    private fun prepareFrpcConfig(): File? {
         val configFile = File(filesDir, "frpc.toml")
 
         val prefs = getSharedPreferences("proxy_config", Context.MODE_PRIVATE)
@@ -189,34 +194,25 @@ class ProxyService : Service() {
         val remotePort = prefs.getString("remote_port", "") ?: ""
         val authToken = prefs.getString("auth_token", "") ?: ""
 
-        val config = if (serverAddr.isNotEmpty() && remotePort.isNotEmpty()) {
-            buildString {
-                appendLine("serverAddr = \"$serverAddr\"")
-                appendLine("serverPort = $serverPort")
-                if (authToken.isNotEmpty()) {
-                    appendLine("auth.token = \"$authToken\"")
-                }
-                appendLine()
-                appendLine("[[proxies]]")
-                appendLine("name = \"phone_proxy\"")
-                appendLine("type = \"tcp\"")
-                appendLine("localIP = \"127.0.0.1\"")
-                appendLine("localPort = $PROXY_PORT")
-                appendLine("remotePort = $remotePort")
+        // 端口未配置时不启动 frpc
+        if (serverAddr.isEmpty() || remotePort.isEmpty()) {
+            Log.w(TAG, "frpc config incomplete: serverAddr=$serverAddr remotePort=$remotePort")
+            return null
+        }
+
+        val config = buildString {
+            appendLine("serverAddr = \"$serverAddr\"")
+            appendLine("serverPort = $serverPort")
+            if (authToken.isNotEmpty()) {
+                appendLine("auth.token = \"$authToken\"")
             }
-        } else {
-            buildString {
-                appendLine("# TODO: 编辑此配置后重启服务")
-                appendLine("serverAddr = \"49.232.72.125\"")
-                appendLine("serverPort = 7000")
-                appendLine()
-                appendLine("[[proxies]]")
-                appendLine("name = \"phone_proxy\"")
-                appendLine("type = \"tcp\"")
-                appendLine("localIP = \"127.0.0.1\"")
-                appendLine("localPort = $PROXY_PORT")
-                appendLine("remotePort = 17890")
-            }
+            appendLine()
+            appendLine("[[proxies]]")
+            appendLine("name = \"phone_proxy\"")
+            appendLine("type = \"tcp\"")
+            appendLine("localIP = \"127.0.0.1\"")
+            appendLine("localPort = $PROXY_PORT")
+            appendLine("remotePort = $remotePort")
         }
 
         configFile.writeText(config)
