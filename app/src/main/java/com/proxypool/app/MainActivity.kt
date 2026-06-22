@@ -116,7 +116,11 @@ class MainActivity : AppCompatActivity() {
             addAction(ProxyService.BROADCAST_LOG)
             addAction(ProxyService.BROADCAST_STATUS)
         }
-        registerReceiver(logReceiver, filter)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            registerReceiver(logReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(logReceiver, filter)
+        }
 
         updateUI()
     }
