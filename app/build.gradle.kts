@@ -5,7 +5,6 @@ plugins {
 
 android {
     namespace = "com.proxypool.app"
-    // build: fd98c0f → force rebuild for codeCacheDir→/data/local/tmp
 
     compileSdk = 34
 
@@ -23,20 +22,6 @@ android {
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
-            )
-        }
-    }
-
-    // Android 8+ 需要声明原生库支持
-    packaging {
-        jniLibs {
-            useLegacyPackaging = false  // 保留 .so 可执行权限，W^X 策略要求
-        }
-        resources {
-            excludes += setOf(
-                "META-INF/DEPENDENCIES",
-                "META-INF/LICENSE*",
-                "META-INF/NOTICE*"
             )
         }
     }
@@ -60,4 +45,5 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    // JSON processing — included in Android SDK, no extra dep needed
 }
