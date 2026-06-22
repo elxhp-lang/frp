@@ -24,6 +24,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var scrollLog: ScrollView
     private lateinit var serverAddrInput: EditText
     private lateinit var remotePortInput: EditText
+    private lateinit var authTokenInput: EditText
     private lateinit var startBtn: Button
     private lateinit var stopBtn: Button
 
@@ -39,13 +40,15 @@ class MainActivity : AppCompatActivity() {
         scrollLog = findViewById(R.id.scroll_log)
         serverAddrInput = findViewById(R.id.server_addr)
         remotePortInput = findViewById(R.id.remote_port)
+        authTokenInput = findViewById(R.id.auth_token)
         startBtn = findViewById(R.id.start_btn)
         stopBtn = findViewById(R.id.stop_btn)
 
         // 加载上次保存的配置
         val prefs = getSharedPreferences("proxy_config", Context.MODE_PRIVATE)
         serverAddrInput.setText(prefs.getString("server_addr", "49.232.72.125"))
-        remotePortInput.setText(prefs.getString("remote_port", "17890"))
+        remotePortInput.setText(prefs.getString("remote_port", ""))
+        authTokenInput.setText(prefs.getString("auth_token", ""))
 
         updateUI()
 
@@ -85,6 +88,7 @@ class MainActivity : AppCompatActivity() {
         prefs.edit().apply {
             putString("server_addr", serverAddrInput.text.toString().trim())
             putString("remote_port", remotePortInput.text.toString().trim())
+            putString("auth_token", authTokenInput.text.toString().trim())
             apply()
         }
         addLog("Config saved")

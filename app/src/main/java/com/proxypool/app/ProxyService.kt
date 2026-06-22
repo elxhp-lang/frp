@@ -189,14 +189,14 @@ class ProxyService : Service() {
         val configFile = File(filesDir, "frpc.toml")
 
         val prefs = getSharedPreferences("proxy_config", Context.MODE_PRIVATE)
-        val serverAddr = prefs.getString("server_addr", "") ?: ""
+        val serverAddr = prefs.getString("server_addr", "")?.takeIf { it.isNotEmpty() } ?: "49.232.72.125"
         val serverPort = prefs.getString("server_port", "7000") ?: "7000"
         val remotePort = prefs.getString("remote_port", "") ?: ""
         val authToken = prefs.getString("auth_token", "") ?: ""
 
-        // 端口未配置时不启动 frpc
-        if (serverAddr.isEmpty() || remotePort.isEmpty()) {
-            Log.w(TAG, "frpc config incomplete: serverAddr=$serverAddr remotePort=$remotePort")
+        // 端口和 Token 必须手动填写
+        if (remotePort.isEmpty()) {
+            Log.w(TAG, "frpc config incomplete: remotePort is empty")
             return null
         }
 

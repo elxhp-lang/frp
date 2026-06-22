@@ -53,11 +53,21 @@
             android:layout_width="100dp"
             android:layout_height="48dp"
             android:hint="端口"
-            android:text="17890"
             android:inputType="number"
             android:paddingStart="8dp"
             android:background="@android:color/transparent" />
     </LinearLayout>
+
+    <EditText
+        android:id="@+id/auth_token"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:hint="Auth Token（必填）"
+        android:inputType="text"
+        android:paddingStart="8dp"
+        android:layout_marginTop="4dp"
+        android:background="#FFFFFF"
+        android:elevation="1dp" />
 
     <!-- 按钮 -->
     <LinearLayout
