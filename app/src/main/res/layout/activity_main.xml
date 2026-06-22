@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="#F5F5F5">
+
+    <!-- 状态头 -->
+    <TextView
+        android:id="@+id/status_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="○ Stopped"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:textColor="#F44336"
+        android:padding="12dp"
+        android:background="#FFFFFF"
+        android:elevation="2dp" />
+
+    <!-- 配置区域 -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="FRP 服务器配置"
+        android:textSize="14sp"
+        android:textColor="#666666"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="#FFFFFF"
+        android:padding="8dp"
+        android:elevation="1dp">
+
+        <EditText
+            android:id="@+id/server_addr"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:hint="服务器地址"
+            android:text="49.232.72.125"
+            android:inputType="text"
+            android:paddingStart="8dp"
+            android:background="@android:color/transparent" />
+
+        <EditText
+            android:id="@+id/remote_port"
+            android:layout_width="100dp"
+            android:layout_height="48dp"
+            android:hint="端口"
+            android:text="17890"
+            android:inputType="number"
+            android:paddingStart="8dp"
+            android:background="@android:color/transparent" />
+    </LinearLayout>
+
+    <!-- 按钮 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="12dp">
+
+        <Button
+            android:id="@+id/start_btn"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="启动代理"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/stop_btn"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="停止代理"
+            android:enabled="false"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+
+    <!-- 日志 -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="运行日志"
+        android:textSize="14sp"
+        android:textColor="#666666"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="8dp" />
+
+    <ScrollView
+        android:id="@+id/scroll_log"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#FFFFFF"
+        android:padding="8dp"
+        android:elevation="1dp">
+
+        <TextView
+            android:id="@+id/log_view"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="等待操作..."
+            android:textSize="11sp"
+            android:fontFamily="monospace"
+            android:textColor="#333333" />
+    </ScrollView>
+
+</LinearLayout>
