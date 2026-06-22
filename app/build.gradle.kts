@@ -5,6 +5,8 @@ plugins {
 
 android {
     namespace = "com.proxypool.app"
+    // build: fd98c0f → force rebuild for codeCacheDir→/data/local/tmp
+
     compileSdk = 34
 
     defaultConfig {
