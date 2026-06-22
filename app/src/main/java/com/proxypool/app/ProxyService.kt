@@ -75,12 +75,16 @@ class ProxyService : Service() {
     private fun startProxies() {
         scope.launch {
             try {
-                // 1. 提取并启动 mini-proxy（本地 HTTP 代理 :7890）
-                val proxyBin = extractBinary("mini-proxy", "mini-proxy")
+                // 1. 提取并启动 tinyproxy（本地 HTTP 代理 :7890）
+                val proxyBin = extractBinary("tinyproxy", "tinyproxy")
                 proxyBin.setExecutable(true)
-                Log.i(TAG, "Starting mini-proxy on port $PROXY_PORT")
+
+                // 生成 tinyproxy 配置文件
+                val proxyConfig = prepareProxyConfig()
+
+                Log.i(TAG, "Starting tinyproxy on port $PROXY_PORT")
                 proxyProcess = Runtime.getRuntime().exec(
-                    arrayOf(proxyBin.absolutePath, "-p", PROXY_PORT.toString()),
+                    arrayOf(proxyBin.absolutePath, "-c", proxyConfig.absolutePath),
                     null,
                     filesDir
                 )
@@ -115,10 +119,36 @@ class ProxyService : Service() {
     }
 
     /**
+     * 生成 tinyproxy 配置文件
+     */
+    private fun prepareProxyConfig(): File {
+        val configFile = File(filesDir, "tinyproxy.conf")
+        val config = buildString {
+            appendLine("# ProxyPool tinyproxy config")
+            appendLine("Port $PROXY_PORT")
+            appendLine("Listen 127.0.0.1")
+            appendLine("Bind 127.0.0.1")
+            appendLine("Timeout 600")
+            appendLine("MaxClients 100")
+            appendLine("MinSpareServers 3")
+            appendLine("MaxSpareServers 10")
+            appendLine("StartServers 5")
+            appendLine("MaxRequestsPerChild 0")
+            appendLine("Allow 127.0.0.1")
+            appendLine("DisableViaHeader Yes")
+            // 日志
+            appendLine("LogLevel Info")
+            appendLine("LogFile \"${filesDir.absolutePath}/tinyproxy.log\"")
+        }
+        configFile.writeText(config)
+        Log.d(TAG, "tinyproxy config written: ${configFile.absolutePath}")
+        return configFile
+    }
+
+    /**
      * 从 Assets 中提取 ARM64 二进制到私有目录
      */
     private fun extractBinary(assetName: String, outputName: String): File {
-        // 优先使用 assets/arm64-v8a/ 目录下的二进制
         val arch = Build.SUPPORTED_ABIS[0] // 例如 arm64-v8a
         val assetPath = "$arch/$assetName"
         val outputFile = File(filesDir, outputName)
@@ -129,7 +159,6 @@ class ProxyService : Service() {
         }
 
         try {
-            // 尝试架构特定路径
             assets.open(assetPath).use { input ->
                 FileOutputStream(outputFile).use { output ->
                     input.copyTo(output)
@@ -137,7 +166,6 @@ class ProxyService : Service() {
             }
             Log.i(TAG, "Extracted $assetName ($arch) -> ${outputFile.absolutePath}")
         } catch (e: Exception) {
-            // 回退到直接 assets 路径
             assets.open(assetName).use { input ->
                 FileOutputStream(outputFile).use { output ->
                     input.copyTo(output)
@@ -155,14 +183,12 @@ class ProxyService : Service() {
     private fun prepareFrpcConfig(): File {
         val configFile = File(filesDir, "frpc.toml")
 
-        // 尝试从 SharedPreferences 读取配置
         val prefs = getSharedPreferences("proxy_config", Context.MODE_PRIVATE)
         val serverAddr = prefs.getString("server_addr", "") ?: ""
         val serverPort = prefs.getString("server_port", "7000") ?: "7000"
         val remotePort = prefs.getString("remote_port", "") ?: ""
         val authToken = prefs.getString("auth_token", "") ?: ""
 
-        // 如果没有配置，使用默认模板
         val config = if (serverAddr.isNotEmpty() && remotePort.isNotEmpty()) {
             buildString {
                 appendLine("serverAddr = \"$serverAddr\"")
@@ -179,7 +205,6 @@ class ProxyService : Service() {
                 appendLine("remotePort = $remotePort")
             }
         } else {
-            // 默认配置（需在编辑后重启服务）
             buildString {
                 appendLine("# TODO: 编辑此配置后重启服务")
                 appendLine("serverAddr = \"49.232.72.125\"")
@@ -208,7 +233,7 @@ class ProxyService : Service() {
 
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("ProxyPool 运行中")
-            .setContentText("代理端口: $PROXY_PORT — 点击打开管理")
+            .setContentText("tinyproxy :$PROXY_PORT — frp 隧道已连接")
             .setSmallIcon(android.R.drawable.ic_menu_share)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
