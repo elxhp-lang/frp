@@ -3,113 +3,173 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp"
-    android:background="#F5F5F5">
+    android:padding="12dp"
+    android:background="#F0F0F0">
 
-    <!-- 状态头 -->
-    <TextView
-        android:id="@+id/status_text"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="○ Stopped"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        android:textColor="#F44336"
-        android:padding="12dp"
-        android:background="#FFFFFF"
-        android:elevation="2dp" />
-
-    <!-- 配置区域 -->
+    <!-- ═══════ 配置区 ═══════ -->
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="FRP 服务器配置"
-        android:textSize="14sp"
-        android:textColor="#666666"
-        android:layout_marginTop="16dp"
-        android:layout_marginBottom="8dp" />
+        android:text="📋 FRP 服务器配置"
+        android:textSize="13sp"
+        android:textColor="#666"
+        android:layout_marginBottom="6dp" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:background="#FFFFFF"
-        android:padding="8dp"
+        android:background="#FFF"
+        android:padding="4dp"
         android:elevation="1dp">
 
         <EditText
             android:id="@+id/server_addr"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="44dp"
             android:layout_weight="1"
-            android:hint="服务器地址"
+            android:hint="Server"
             android:text="49.232.72.125"
             android:inputType="text"
             android:paddingStart="8dp"
-            android:background="@android:color/transparent" />
+            android:background="@android:color/transparent"
+            android:textSize="13sp" />
 
         <EditText
             android:id="@+id/remote_port"
-            android:layout_width="100dp"
-            android:layout_height="48dp"
-            android:hint="端口"
+            android:layout_width="80dp"
+            android:layout_height="44dp"
+            android:hint="Port"
             android:inputType="number"
             android:paddingStart="8dp"
-            android:background="@android:color/transparent" />
+            android:background="@android:color/transparent"
+            android:textSize="13sp" />
+
+        <EditText
+            android:id="@+id/auth_token"
+            android:layout_width="100dp"
+            android:layout_height="44dp"
+            android:hint="Token"
+            android:inputType="text"
+            android:paddingStart="8dp"
+            android:background="@android:color/transparent"
+            android:textSize="13sp" />
     </LinearLayout>
 
-    <EditText
-        android:id="@+id/auth_token"
+    <Button
+        android:id="@+id/save_btn"
         android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:hint="Auth Token（必填）"
-        android:inputType="text"
-        android:paddingStart="8dp"
+        android:layout_height="36dp"
+        android:text="保存配置"
+        android:textSize="12sp"
         android:layout_marginTop="4dp"
-        android:background="#FFFFFF"
-        android:elevation="1dp" />
+        android:layout_marginBottom="10dp" />
 
-    <!-- 按钮 -->
+    <!-- ═══════ tinyproxy 区 ═══════ -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="🔹 tinyproxy  (本地代理 :7890)"
+        android:textSize="13sp"
+        android:textColor="#333"
+        android:layout_marginBottom="2dp" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginTop="12dp">
+        android:gravity="center_vertical"
+        android:background="#FFF"
+        android:padding="8dp"
+        android:elevation="1dp"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:id="@+id/tinyproxy_status"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="○ 未启动"
+            android:textSize="13sp"
+            android:textColor="#F44336" />
 
         <Button
-            android:id="@+id/start_btn"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="启动代理"
-            android:layout_marginEnd="8dp" />
+            android:id="@+id/tinyproxy_start"
+            android:layout_width="72dp"
+            android:layout_height="38dp"
+            android:text="启动"
+            android:textSize="12sp"
+            android:layout_marginEnd="4dp" />
 
         <Button
-            android:id="@+id/stop_btn"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:text="停止代理"
-            android:enabled="false"
-            android:layout_marginStart="8dp" />
+            android:id="@+id/tinyproxy_stop"
+            android:layout_width="72dp"
+            android:layout_height="38dp"
+            android:text="停止"
+            android:textSize="12sp"
+            android:enabled="false" />
     </LinearLayout>
 
-    <!-- 日志 -->
+    <!-- ═══════ frpc 区 ═══════ -->
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="运行日志"
-        android:textSize="14sp"
-        android:textColor="#666666"
-        android:layout_marginTop="16dp"
-        android:layout_marginBottom="8dp" />
+        android:text="🔸 frpc  (隧道 → VPS)"
+        android:textSize="13sp"
+        android:textColor="#333"
+        android:layout_marginBottom="2dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#FFF"
+        android:padding="8dp"
+        android:elevation="1dp"
+        android:layout_marginBottom="10dp">
+
+        <TextView
+            android:id="@+id/frpc_status"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="○ 未启动"
+            android:textSize="13sp"
+            android:textColor="#F44336" />
+
+        <Button
+            android:id="@+id/frpc_start"
+            android:layout_width="72dp"
+            android:layout_height="38dp"
+            android:text="启动"
+            android:textSize="12sp"
+            android:layout_marginEnd="4dp" />
+
+        <Button
+            android:id="@+id/frpc_stop"
+            android:layout_width="72dp"
+            android:layout_height="38dp"
+            android:text="停止"
+            android:textSize="12sp"
+            android:enabled="false" />
+    </LinearLayout>
+
+    <!-- ═══════ 日志区 ═══════ -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="📜 运行日志"
+        android:textSize="13sp"
+        android:textColor="#666"
+        android:layout_marginBottom="4dp" />
 
     <ScrollView
         android:id="@+id/scroll_log"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:background="#FFFFFF"
+        android:background="#1E1E1E"
         android:padding="8dp"
         android:elevation="1dp">
 
@@ -117,10 +177,10 @@
             android:id="@+id/log_view"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="等待操作..."
+            android:text="等待操作…"
             android:textSize="11sp"
             android:fontFamily="monospace"
-            android:textColor="#333333" />
+            android:textColor="#B0B0B0" />
     </ScrollView>
 
 </LinearLayout>

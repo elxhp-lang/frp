@@ -7,7 +7,8 @@ import android.content.BroadcastReceiver
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            ProxyService.start(context)
+            // 开机自启：只启动 tinyproxy（本地代理），frpc 需用户手动确认配置
+            ProxyService.start(context, ProxyService.ACTION_START_TINYPROXY)
         }
     }
 }
