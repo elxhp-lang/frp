@@ -1,8 +1,8 @@
-name: Android Build
+name: Build APK
 
 on:
   push:
-    branches: [tunnel]
+    branches: [tunnel, main]
   workflow_dispatch:
 
 jobs:
@@ -18,22 +18,15 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        run: |
-          echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}" >> $GITHUB_ENV
-          yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-34 build-tools;34.0.0'
 
-      - name: Generate Gradle Wrapper
-        run: |
-          cd /tmp
-          wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip
-          unzip -q gradle-8.7-bin.zip
-          export PATH=/tmp/gradle-8.7/bin:$PATH
-          cd $GITHUB_WORKSPACE
-          gradle wrapper --gradle-version 8.7
+      - name: Make gradlew executable
+        run: chmod +x gradlew
 
-      - name: Build Debug APK
+      - name: Build debug APK
         run: ./gradlew assembleDebug
 
       - name: Upload APK
@@ -41,3 +34,4 @@ jobs:
         with:
           name: ProxyPool-Tunnel-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
