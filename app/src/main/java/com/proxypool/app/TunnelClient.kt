@@ -72,12 +72,12 @@ class TunnelClient(
     // ─────── 主循环（含自动重连） ───────
 
     private suspend fun runLoop() {
-        var delay = RECONNECT_MIN
+        var waitSec = RECONNECT_MIN
 
         while (running && isActive) {
             try {
                 connect()
-                delay = RECONNECT_MIN
+                waitSec = RECONNECT_MIN
                 handleMessages()
             } catch (e: CancellationException) {
                 break
@@ -89,11 +89,11 @@ class TunnelClient(
 
             if (!running) break
 
-            val wait = minOf(delay, RECONNECT_MAX)
+            val wait = minOf(waitSec, RECONNECT_MAX)
             log(TAG, "${wait}s 后重连…")
             isConnected = false
             delay(wait * 1000)
-            delay = minOf(delay * 2, RECONNECT_MAX)
+            waitSec = minOf(waitSec * 2, RECONNECT_MAX)
         }
     }
 
