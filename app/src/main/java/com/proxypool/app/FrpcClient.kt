@@ -1,55 +1,32 @@
 package com.proxypool.app
 
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
 import org.json.JSONObject
 import java.io.*
 import java.net.Socket
 import java.security.MessageDigest
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * Pure Kotlin frp client — implements frp wire protocol (golib msg/json).
- *
- * Wire format:
- *   [1 byte: type] [8 bytes: int64 big-endian jsonLen] [json bytes]
- *
- * Message types:
- *   'o' Login      '1' LoginResp   'p' NewProxy
- *   '2' NewProxyResp  'h' Ping    '4' Pong
- *   'w' NewWorkConn  'r' ReqWorkConn  's' StartWorkConn
- */
 class FrpcClient(
     private val serverAddr: String,
     private val serverPort: Int,
     private val token: String,
-    @Suppress("unused") private val remotePort: Int,  // kept for UI, unused in tcpmux mode
-    private val localPort: Int,   // goproxy listen port
-    private val log: (String, String) -> Unit  // (tag, line) logger
+    private val remotePort: Int,
+    private val localPort: Int,
+    private val log: (String, String) -> Unit
 ) {
-    // ── state ──
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val running = AtomicBoolean(false)
     private var runID: String = ""
     private var controlSocket: Socket? = null
-    private var controlOutput: DataOutputStream? = null
     private var heartbeatJob: Job? = null
-    private val workConnections = ConcurrentHashMap<String, Job>()
-
-    // ── public API ──
 
     fun start() {
         if (!running.compareAndSet(false, true)) return
         log("frpc", "connecting to $serverAddr:$serverPort …")
-
         scope.launch {
-            try {
-                connectAndLogin()
-            } catch (e: Exception) {
-                log("frpc", "✗ fatal: ${e.message}")
-                stop()
-            }
+            try { connectAndLogin() }
+            catch (e: Exception) { log("frpc", "✗ fatal: ${e.message}"); stop() }
         }
     }
 
@@ -57,7 +34,6 @@ class FrpcClient(
         if (!running.getAndSet(false)) return
         log("frpc", "stopping…")
         heartbeatJob?.cancel()
-        workConnections.values.forEach { it.cancel() }
         try { controlSocket?.close() } catch (_: Exception) {}
         scope.cancel()
         log("frpc", "stopped")
@@ -65,132 +41,96 @@ class FrpcClient(
 
     fun isRunning(): Boolean = running.get()
 
-    // ── auth key (MD5(token + timestamp)) ──
-
-    private fun getAuthKey(ts: Long): String {
+    private fun authKey(ts: Long): String {
         val md = MessageDigest.getInstance("MD5")
-        val input = "$token$ts".toByteArray(Charsets.UTF_8)
-        return md.digest(input).joinToString("") { "%02x".format(it) }
+        return md.digest("$token$ts".toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
     }
-
-    // ── V1 wire encoding (golib msg/json format) ──
-    // Format: [1 byte type] [8 bytes int64 big-endian jsonLen] [json bytes]
 
     private fun writeMsg(type: Byte, json: String, out: DataOutputStream) {
         val body = json.toByteArray(Charsets.UTF_8)
-        val typeByte = type.toInt()
-        val lenLong = body.size.toLong()
-        out.write(typeByte)
-        out.writeLong(lenLong)
+        out.write(type.toInt())
+        out.writeLong(body.size.toLong())
         out.write(body)
         out.flush()
-        // Debug: hex dump first 64 bytes
-        val hexDump = (byteArrayOf(typeByte.toByte()) +
-                java.nio.ByteBuffer.allocate(8).putLong(lenLong).array() +
-                body).take(64).joinToString(" ") { "%02x".format(it) }
-        log("frpc-hex", "write type=${type.toInt().toChar()} len=$lenLong → $hexDump")
     }
 
-    private class ParsedMsg(val type: Byte, val json: String)
+    private class Msg(val type: Byte, val json: String)
 
-    private fun readMsg(input: DataInputStream): ParsedMsg? {
-        val typeByte = input.read()        // 1 byte: type
-        if (typeByte < 0) { log("frpc-hex", "readMsg EOF (connection closed)"); return null }
-        val jsonLen = input.readLong()     // 8 bytes: int64 big-endian length
-        if (jsonLen < 0 || jsonLen > 10_485_760) {
-            log("frpc-hex", "readMsg bad jsonLen=$jsonLen")
-            throw IOException("readMsg: bad jsonLen=$jsonLen")
-        }
-        val payload = ByteArray(jsonLen.toInt())
+    private fun readMsg(input: DataInputStream): Msg? {
+        val t = input.read()
+        if (t < 0) { log("frpc", "connection closed"); return null }
+        val len = input.readLong()
+        if (len < 0 || len > 10_485_760) throw IOException("bad msg len=$len")
+        val payload = ByteArray(len.toInt())
         input.readFully(payload)
-        val json = String(payload, Charsets.UTF_8)
-        val hexDump = (byteArrayOf(typeByte.toByte()) +
-                java.nio.ByteBuffer.allocate(8).putLong(jsonLen).array() +
-                payload).take(64).joinToString(" ") { "%02x".format(it) }
-        log("frpc-hex", "read  type=${typeByte.toInt().toChar()} len=$jsonLen → $hexDump")
-        return ParsedMsg(typeByte.toByte(), json)
+        return Msg(t.toByte(), String(payload, Charsets.UTF_8))
     }
-
-    // ── login + proxy registration ──
 
     private suspend fun connectAndLogin() {
         val sock = Socket(serverAddr, serverPort)
         controlSocket = sock
-        sock.soTimeout = 0  // no timeout for control
-        log("frpc", "✓ TCP connected to $serverAddr:$serverPort")
+        sock.soTimeout = 0
+        log("frpc", "✓ TCP connected")
+
         val out = DataOutputStream(sock.getOutputStream().buffered())
         val input = DataInputStream(sock.getInputStream().buffered())
-        controlOutput = out
 
-        // Step 1: Login
         val ts = System.currentTimeMillis() / 1000
-        val authKey = getAuthKey(ts)
-        log("frpc", "Login: ts=$ts authKey=$authKey")
-        val loginJson = JSONObject().apply {
-            put("version", "0.61.0-kotlin")
+        writeMsg('o'.code.toByte(), JSONObject().apply {
+            put("version", "0.61.0")
             put("hostname", "android-proxy")
-            put("os", "android")
+            put("os", "linux")
             put("arch", "arm64")
             put("user", "")
-            put("privilege_key", getAuthKey(ts))
+            put("privilege_key", authKey(ts))
             put("timestamp", ts)
-            put("run_id", "")     // first login
+            put("run_id", "")
             put("pool_count", 1)
-        }.toString()
-        log("frpc", "→ Login")
-        writeMsg('o'.code.toByte(), loginJson, out)
+        }.toString(), out)
 
-        val loginResp = readMsg(input) ?: throw IOException("login: no response")
-        if (loginResp.type != '1'.code.toByte()) throw IOException("login: unexpected type ${loginResp.type.toInt().toChar()}")
-        val lr = JSONObject(loginResp.json)
-        val error = lr.optString("error", "")
-        if (error.isNotEmpty()) throw IOException("login rejected: $error")
-        runID = lr.optString("run_id", "")
+        val lr = readMsg(input) ?: throw IOException("login: no response")
+        if (lr.type != '1'.code.toByte()) throw IOException("login: unexpected type ${lr.type.toInt().toChar()}")
+        val lrj = JSONObject(lr.json)
+        val err = lrj.optString("error", "")
+        if (err.isNotEmpty()) throw IOException("login rejected: $err")
+        runID = lrj.optString("run_id", "")
         log("frpc", "✓ logged in, runID=$runID")
 
-        // Step 2: NewProxy (tcpmux — proxy traffic on bind_port, no separate remote_port)
-        val proxyJson = JSONObject().apply {
-            put("proxy_name", "phone_pool")
-            put("proxy_type", "tcpmux")
-        }.toString()
-        log("frpc", "→ NewProxy (tcpmux — traffic via bind_port)")
-        writeMsg('p'.code.toByte(), proxyJson, out)
+        writeMsg('p'.code.toByte(), JSONObject().apply {
+            put("proxy_name", "phone_proxy")
+            put("proxy_type", "tcp")
+            put("remote_port", remotePort)
+            put("use_encryption", false)
+            put("use_compression", false)
+        }.toString(), out)
 
-        val proxyResp = readMsg(input) ?: throw IOException("newproxy: no response")
-        if (proxyResp.type != '2'.code.toByte()) throw IOException("newproxy: unexpected type ${proxyResp.type.toInt().toChar()}")
-        val pr = JSONObject(proxyResp.json)
-        val pError = pr.optString("error", "")
-        if (pError.isNotEmpty()) throw IOException("proxy rejected: $pError")
-        log("frpc", "✓ proxy registered, addr=${pr.optString("remote_addr")}")
+        val pr = readMsg(input) ?: throw IOException("newproxy: no response")
+        if (pr.type != '2'.code.toByte()) throw IOException("newproxy: unexpected type ${pr.type.toInt().toChar()}")
+        val prj = JSONObject(pr.json)
+        val pErr = prj.optString("error", "")
+        if (pErr.isNotEmpty()) throw IOException("proxy rejected: $pErr")
+        log("frpc", "✓ tunnel up on VPS:$remotePort → local:$localPort")
 
-        // Step 3: Start heartbeat & message loop
         heartbeatJob = scope.launch { heartbeatLoop(out) }
         messageLoop(input)
     }
 
-    // ── heartbeat ──
-
     private suspend fun heartbeatLoop(out: DataOutputStream) {
         while (running.get()) {
-            delay(30_000)  // every 30s
+            delay(30_000)
             try {
                 val ts = System.currentTimeMillis() / 1000
-                val pingJson = JSONObject().apply {
-                    put("privilege_key", getAuthKey(ts))
+                writeMsg('h'.code.toByte(), JSONObject().apply {
+                    put("privilege_key", authKey(ts))
                     put("timestamp", ts)
-                }.toString()
-                writeMsg('h'.code.toByte(), pingJson, out)
+                }.toString(), out)
             } catch (e: Exception) {
-                if (running.get()) {
-                    log("frpc", "heartbeat error: ${e.message}")
-                    stop()
-                }
+                if (running.get()) { log("frpc", "heartbeat error: ${e.message}"); stop() }
                 break
             }
         }
     }
-
-    // ── control message loop ──
 
     private suspend fun messageLoop(input: DataInputStream) {
         try {
@@ -198,78 +138,65 @@ class FrpcClient(
                 val msg = readMsg(input) ?: break
                 when (msg.type) {
                     'r'.code.toByte() -> handleReqWorkConn()
-                    '4'.code.toByte() -> { /* Pong — ok */ }
-                    else -> log("frpc", "← unknown msg type: ${msg.type.toInt().toChar()}")
+                    '4'.code.toByte() -> { /* Pong */ }
+                    else -> log("frpc", "← msg type: ${msg.type.toInt().toChar()}")
                 }
             }
         } catch (e: Exception) {
-            if (running.get()) {
-                log("frpc", "control disconnected: ${e.message}")
-                stop()
-            }
+            if (running.get()) { log("frpc", "control disconnected: ${e.message}"); stop() }
         }
     }
 
-    // ── work connection handling ──
-
     private fun handleReqWorkConn() {
-        log("frpc", "← ReqWorkConn, opening tunnel…")
         scope.launch {
             try {
-                val workSocket = Socket(serverAddr, serverPort)
-                val workOut = DataOutputStream(workSocket.getOutputStream().buffered())
-                val workIn = DataInputStream(workSocket.getInputStream().buffered())
+                val workSock = Socket(serverAddr, serverPort)
+                val wOut = DataOutputStream(workSock.getOutputStream().buffered())
+                val wIn = DataInputStream(workSock.getInputStream().buffered())
 
-                // Send NewWorkConn
                 val ts = System.currentTimeMillis() / 1000
-                val nwcJson = JSONObject().apply {
+                writeMsg('w'.code.toByte(), JSONObject().apply {
                     put("run_id", runID)
-                    put("privilege_key", getAuthKey(ts))
+                    put("privilege_key", authKey(ts))
                     put("timestamp", ts)
-                }.toString()
-                writeMsg('w'.code.toByte(), nwcJson, workOut)
+                }.toString(), wOut)
 
-                // Read StartWorkConn
-                val startMsg = readMsg(workIn) ?: return@launch
-                if (startMsg.type != 's'.code.toByte()) {
-                    log("frpc", "✗ work conn: unexpected type ${startMsg.type.toInt().toChar()}")
-                    workSocket.close()
-                    return@launch
-                }
-                val sw = JSONObject(startMsg.json)
-                val swError = sw.optString("error", "")
-                if (swError.isNotEmpty()) {
-                    log("frpc", "✗ StartWorkConn error: $swError")
-                    workSocket.close()
-                    return@launch
-                }
-                log("frpc", "✓ work conn established for ${sw.optString("proxy_name")}")
+                val sm = readMsg(wIn) ?: return@launch
+                if (sm.type != 's'.code.toByte()) { workSock.close(); return@launch }
+                val smj = JSONObject(sm.json)
+                if (smj.optString("error", "").isNotEmpty()) { workSock.close(); return@launch }
 
-                // Bridge: frp work connection ↔ local goproxy
-                bridgeWorkConn(workSocket, sw.optString("proxy_name", "unknown"))
+                log("frpc", "✓ work conn → bridging to :$localPort")
+                bridgeWorkConn(workSock)
             } catch (e: Exception) {
                 log("frpc", "work conn error: ${e.message}")
             }
         }
     }
 
-    // ── TCP bridge: work connection → 127.0.0.1:localPort ──
-
-    private suspend fun bridgeWorkConn(workSocket: Socket, proxyName: String) = coroutineScope {
+    // 修复：两个方向都 join，任意一方断开就关闭双方
+    private suspend fun bridgeWorkConn(workSock: Socket) {
         try {
-            val localSocket = Socket("127.0.0.1", localPort)
-            log("frpc", "bridging $proxyName → :$localPort")
-
-            val j1 = launch { workSocket.getInputStream().copyTo(localSocket.getOutputStream()) }
-            val j2 = launch { localSocket.getInputStream().copyTo(workSocket.getOutputStream()) }
-
-            j1.join()
-            j2.cancel()
-            localSocket.close()
-        } catch (e: Exception) {
-            log("frpc", "bridge broken: ${e.message}")
+            val localSock = Socket("127.0.0.1", localPort)
+            try {
+                coroutineScope {
+                    val j1 = launch(Dispatchers.IO) {
+                        try { workSock.getInputStream().copyTo(localSock.getOutputStream()) } catch (_: Exception) {}
+                        finally { try { localSock.close() } catch (_: Exception) {} }
+                    }
+                    val j2 = launch(Dispatchers.IO) {
+                        try { localSock.getInputStream().copyTo(workSock.getOutputStream()) } catch (_: Exception) {}
+                        finally { try { workSock.close() } catch (_: Exception) {} }
+                    }
+                    // 任意一方结束，cancel 整个 coroutineScope
+                    j1.invokeOnCompletion { j2.cancel() }
+                    j2.invokeOnCompletion { j1.cancel() }
+                }
+            } finally {
+                try { localSock.close() } catch (_: Exception) {}
+            }
         } finally {
-            try { workSocket.close() } catch (_: Exception) {}
+            try { workSock.close() } catch (_: Exception) {}
         }
     }
 }
