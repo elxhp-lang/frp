@@ -7,19 +7,23 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
- * 隧道客户端 — 替代 FrpcClient
+ * 隧道客户端 v2.0 — HTTP 请求 + CONNECT 中继
  *
- * 单条 TCP 长连接承载所有 HTTP 请求。
+ * 单条 TCP 长连接承载：
+ * - HTTP REQUEST/RESPONSE（原有流程）
+ * - CONNECT 中继（SOCKS5 / HTTP CONNECT → 手机做 TCP 连接 + 双向字节流转发）
+ *
  * 协议: 4字节大端长度前缀 + JSON
- *
- * VPS隧道服务器 IP:PORT 从注册服务获取
  */
 class TunnelClient(
     private val vpsAddr: String,
@@ -32,7 +36,8 @@ class TunnelClient(
         private const val TAG = "tunnel"
         private const val RECONNECT_MIN = 1L
         private const val RECONNECT_MAX = 30L
-        private const val READ_TIMEOUT = 15  // 15s 无消息则心跳
+        private const val READ_TIMEOUT = 15
+        private const val RELAY_BUF_SIZE = 65536
     }
 
     private var socket: Socket? = null
@@ -43,6 +48,16 @@ class TunnelClient(
     @Volatile var isConnected = false
     @Volatile var assignedPort: Int = 0
     private var job: Job? = null
+
+    // CONNECT 中继状态: connect_id → RelaySession
+    private val relays = ConcurrentHashMap<String, RelaySession>()
+
+    private data class RelaySession(
+        val target: Socket,
+        val targetIn: InputStream,
+        val targetOut: OutputStream,
+        val job: Job
+    )
 
     private val okHttp = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -65,6 +80,9 @@ class TunnelClient(
         running = false
         job?.cancel()
         disconnect()
+        // 关闭所有中继
+        relays.values.forEach { cleanupRelay(it) }
+        relays.clear()
         log(TAG, "stopped")
     }
 
@@ -73,7 +91,7 @@ class TunnelClient(
     private suspend fun runLoop() {
         var waitSec = RECONNECT_MIN
 
-        while (running && isActive) {
+        while (running && scope.isActive) {
             try {
                 connect()
                 waitSec = RECONNECT_MIN
@@ -98,7 +116,7 @@ class TunnelClient(
 
     // ─────── 连接与认证 ───────
 
-    private fun connect() = withContext(Dispatchers.IO) {
+    private suspend fun connect() = withContext(Dispatchers.IO) {
         log(TAG, "连接 $vpsAddr:$tunnelPort")
         val sock = Socket()
         sock.tcpNoDelay = true
@@ -109,11 +127,11 @@ class TunnelClient(
         output = DataOutputStream(sock.getOutputStream())
         input = DataInputStream(sock.getInputStream())
 
-        // 认证
         val auth = JSONObject().apply {
             put("type", "AUTH")
             put("phone_id", phoneId)
             put("token", token)
+            put("version", "2.0")
         }
         sendMsg(auth)
 
@@ -124,25 +142,29 @@ class TunnelClient(
 
         assignedPort = resp.optInt("port", 0)
         isConnected = true
-        log(TAG, "✓ tunnel up  assigned :$assignedPort")
+        log(TAG, "✓ tunnel up  assigned :$assignedPort  v2.0")
     }
 
     // ─────── 消息处理 ───────
 
     private suspend fun handleMessages() {
-        while (running && isActive) {
+        while (running && scope.isActive) {
             val msg = recvMsg()
             if (msg == null) {
-                // 超时 → 发心跳
                 sendMsg(JSONObject().apply { put("type", "HEARTBEAT") })
                 continue
             }
 
             when (msg.optString("type")) {
-                "REQUEST" -> handleRequest(msg)
+                "REQUEST"   -> handleRequest(msg)
+                "CONNECT"   -> handleConnect(msg)
+                "DATA"      -> handleData(msg)
+                "CLOSE"     -> handleClose(msg)
             }
         }
     }
+
+    // ─────── HTTP REQUEST ───────
 
     private fun handleRequest(msg: JSONObject) {
         val reqId = msg.optString("request_id") ?: return
@@ -190,10 +212,128 @@ class TunnelClient(
         }
     }
 
+    // ─────── CONNECT 中继 ───────
+
+    private fun handleConnect(msg: JSONObject) {
+        val connectId = msg.optString("connect_id") ?: return
+        val host = msg.optString("host") ?: return
+        val port = msg.optInt("port", 443)
+
+        scope.launch(Dispatchers.IO) {
+            try {
+                log(TAG, "CONNECT $host:$port")
+
+                val target = Socket()
+                target.tcpNoDelay = true
+                target.soTimeout = 30000
+                target.connect(InetSocketAddress(host, port), 10_000)
+
+                val targetIn = target.getInputStream()
+                val targetOut = target.getOutputStream()
+
+                // 回复 CONNECTED
+                sendMsg(JSONObject().apply {
+                    put("type", "CONNECTED")
+                    put("connect_id", connectId)
+                    put("status", "ok")
+                })
+
+                // 启动双向中继
+                val relayJob = scope.launch {
+                    // 读取目标服务器数据 → 发往 VPS
+                    launch(Dispatchers.IO) {
+                        relayFromTarget(connectId, targetIn)
+                    }
+                    // 读取 VPS 数据 → 写入目标（在 handleData 中处理）
+                }
+
+                relays[connectId] = RelaySession(target, targetIn, targetOut, relayJob)
+
+            } catch (e: Exception) {
+                log(TAG, "CONNECT failed: $host:$port - ${e.message}")
+                sendMsg(JSONObject().apply {
+                    put("type", "CONNECTED")
+                    put("connect_id", connectId)
+                    put("status", "error")
+                    put("error", e.message ?: "connect failed")
+                })
+            }
+        }
+    }
+
+    private suspend fun relayFromTarget(connectId: String, targetIn: InputStream) {
+        val buf = ByteArray(RELAY_BUF_SIZE)
+        try {
+            while (running && scope.isActive && relays.containsKey(connectId)) {
+                val n = withContext(Dispatchers.IO) { targetIn.read(buf) }
+                if (n < 0) {
+                    // EOF → 通知 VPS 关闭
+                    sendMsg(JSONObject().apply {
+                        put("type", "CLOSE")
+                        put("connect_id", connectId)
+                    })
+                    break
+                }
+                if (n == 0) continue
+
+                val chunk = buf.copyOf(n)
+                sendMsg(JSONObject().apply {
+                    put("type", "DATA")
+                    put("connect_id", connectId)
+                    put("data_hex", chunk.joinToString("") { "%02x".format(it) })
+                })
+            }
+        } catch (e: Exception) {
+            if (relays.containsKey(connectId)) {
+                log(TAG, "relay target→vps error: ${e.message}")
+                try {
+                    sendMsg(JSONObject().apply {
+                        put("type", "CLOSE")
+                        put("connect_id", connectId)
+                    })
+                } catch (_: Exception) {}
+            }
+        } finally {
+            relays.remove(connectId)?.let { cleanupRelay(it) }
+        }
+    }
+
+    private fun handleData(msg: JSONObject) {
+        val connectId = msg.optString("connect_id") ?: return
+        val dataHex = msg.optString("data_hex", "")
+        if (dataHex.isEmpty()) return
+
+        val relay = relays[connectId] ?: return
+        val data = hexToBytes(dataHex)
+
+        scope.launch(Dispatchers.IO) {
+            try {
+                relay.targetOut.write(data)
+                relay.targetOut.flush()
+            } catch (e: Exception) {
+                log(TAG, "relay vps→target write error: ${e.message}")
+                relays.remove(connectId)?.let { cleanupRelay(it) }
+            }
+        }
+    }
+
+    private fun handleClose(msg: JSONObject) {
+        val connectId = msg.optString("connect_id") ?: return
+        relays.remove(connectId)?.let { cleanupRelay(it) }
+    }
+
+    private fun cleanupRelay(relay: RelaySession) {
+        relay.job.cancel()
+        try { relay.targetIn.close() } catch (_: Exception) {}
+        try { relay.targetOut.close() } catch (_: Exception) {}
+        try { relay.target.close() } catch (_: Exception) {}
+    }
+
+    // ─────── HTTP 请求构建 ───────
+
     private fun buildRequest(method: String, url: String, headers: JSONObject?, bodyHex: String): Request {
         val builder = Request.Builder().url(url)
 
-        // 排除 hop-by-hop 头
         val skip = setOf("host", "connection", "proxy-connection",
                          "transfer-encoding", "keep-alive", "proxy-authorization")
         headers?.let { h ->
@@ -205,7 +345,7 @@ class TunnelClient(
         }
 
         if (bodyHex.isNotEmpty()) {
-            val bytes = bodyHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+            val bytes = hexToBytes(bodyHex)
             val ct = headers?.optString("content-type") ?: "application/octet-stream"
             builder.method(method, bytes.toRequestBody(ct.toMediaTypeOrNull()))
         } else if (method in listOf("POST", "PUT", "PATCH")) {
@@ -215,6 +355,10 @@ class TunnelClient(
         }
 
         return builder.build()
+    }
+
+    private fun hexToBytes(hex: String): ByteArray {
+        return hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
     }
 
     // ─────── 协议序列化 ───────
