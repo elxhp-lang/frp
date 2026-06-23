@@ -101,7 +101,7 @@ class MainActivity : AppCompatActivity() {
                 tvProxyAddr.text = proxyService?.proxyAddr ?: ""
                 tvFrpcStatus.text = "● 隧道已建立"
                 tvFrpcStatus.setTextColor(0xFF4CAF50.toInt())
-                tvProxyStatus.text = "● running — 127.0.0.1:7890"
+                tvProxyStatus.text = "● 隧道转发中"
                 tvProxyStatus.setTextColor(0xFF4CAF50.toInt())
                 btnConnect.isEnabled = false
                 btnDisconnect.isEnabled = true

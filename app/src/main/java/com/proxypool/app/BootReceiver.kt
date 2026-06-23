@@ -12,7 +12,7 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
             // 有缓存配置才自启，没注册过的新机不自启
             val prefs = context.getSharedPreferences("proxypool", Context.MODE_PRIVATE)
-            if (prefs.contains("config")) {
+            if (prefs.contains("tunnel_config")) {
                 ProxyService.start(context)
             }
         }

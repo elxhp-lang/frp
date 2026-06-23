@@ -12,7 +12,6 @@ import java.net.Socket
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * 隧道客户端 — 替代 FrpcClient
@@ -53,7 +52,7 @@ class TunnelClient(
         .followSslRedirects(true)
         .build()
 
-    private val reqCounter = AtomicInteger(0)
+    private val writeLock = Any()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     fun start() {
@@ -174,7 +173,7 @@ class TunnelClient(
                     response.close()
                 }
 
-                synchronized(output!!) { sendMsg(respMsg) }
+                sendMsg(respMsg)
 
             } catch (e: Exception) {
                 log(TAG, "HTTP failed: $url - ${e.message}")
@@ -186,7 +185,7 @@ class TunnelClient(
                     put("body_base64", (e.message ?: "error").toByteArray()
                         .joinToString("") { "%02x".format(it) })
                 }
-                try { synchronized(output!!) { sendMsg(err) } } catch (_: Exception) {}
+                try { sendMsg(err) } catch (_: Exception) {}
             }
         }
     }
@@ -223,9 +222,11 @@ class TunnelClient(
     private fun sendMsg(json: JSONObject) {
         val bytes = json.toString().toByteArray(Charsets.UTF_8)
         val header = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(bytes.size).array()
-        output?.write(header)
-        output?.write(bytes)
-        output?.flush()
+        synchronized(writeLock) {
+            output?.write(header)
+            output?.write(bytes)
+            output?.flush()
+        }
     }
 
     private fun recvMsg(): JSONObject? {
