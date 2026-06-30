@@ -36,7 +36,7 @@ class ProxyService : Service() {
     var isConnected: Boolean = false
     var isStarting: Boolean = false
 
-    private val REGISTRY_URL = "http://49.232.72.125:8080/register"
+    private val REGISTRY_URL = "http://8.141.106.18:8080/register"
     private val TUNNEL_PORT = 2222
     private val PREFS = "proxypool"
     private val NOTIF_CHANNEL = "proxy_service"
@@ -150,7 +150,7 @@ class ProxyService : Service() {
     private fun parseConfig(j: JSONObject) = TunnelConfig(
         phoneId = j.optString("phone_id", "phone_unknown"),
         token    = j.optString("frp_token", j.optString("token", "")),
-        vpsAddr  = j.optString("frps_addr", "49.232.72.125")
+        vpsAddr  = j.optString("frps_addr", "8.141.106.18")
     )
 
     fun log(tag: String, line: String) {
